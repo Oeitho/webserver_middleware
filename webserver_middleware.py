@@ -1,6 +1,8 @@
 """A pure-python signlefile load balancer.
 This file can be used as a python module or as a standalone python-script.
 Designed for 2.7.
+
+Updated for 3.9
 """
 
 #Contributors: (add your name and the changes you made here, everyone should have the right to be mentioned for his/her erforts)
@@ -19,7 +21,7 @@ Designed for 2.7.
 
 import socket,select,errno
 
-class LoadBalancer(object):
+class Middleware(object):
     """A load balancer."""
     sendbuffer=4096
     maxbuffersize=2**16
@@ -31,22 +33,9 @@ targets (list of tuples of lenght 2): a list of tupples of (host,port) to spread
 fallback (tuple of length 2 or None): a tuple of (host,port) to send relay connections to if targets-list is empty. Default: None
 check_time (int, long or float): passed as timeout to select.select. The Server can only update its targets-list every check_time seconds. Default: None
 debug (bool): the debug flag. Default: False
-
-The LoadBalancer binds and strts listening on __init__.
-To run the LoadBalancer, call LoadBalancer.mainloop().
+The Middleware binds and strts listening on __init__.
+To run the Middleware, call Middleware.mainloop().
 """
-        assert isinstance(host,str),ValueError("Expected string as host-argument")
-        assert isinstance(port,int),ValueError("Expected int as port-argument")
-        assert isinstance(targets,list),ValueError("Expected list as targets-arguments")
-        assert isinstance(fallback,tuple) or (fallback is None),ValueError("Expected tuple or None as fallback-argument")
-        assert isinstance(check_time,int) or isinstance(check_time,long) or isinstance(check_time,float) or (check_time is None),ValueError("Expected int,long or float as check_time-argument")
-        assert check_time>=0 or (check_time is None),ValueError("Expected positive integer as check_time-argument")
-        assert isinstance(debug,bool),ValueError("Expected bool as debug-argument")
-        for addr in targets:
-            assert len(addr)==2,ValueError("Each address in targets needs to be a tuple of length 2")
-            assert isinstance(addr[0],str),ValueError("Each address in targets needs to have a str at index 0")
-            assert isinstance(addr[1],int),ValueError("Each address in targets needs to have a int at index 1")
-            assert addr[1]>0,ValueError("Each address in targets needs to have a integer larger 0 as port")
         self.host=host
         self.port=port
         self.targets=targets
@@ -63,32 +52,37 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
         self.running=False
         self.bind_and_listen()
     def bind_and_listen(self):
-        """create and binds the listening socket and starts listening. This is automatically called on __init__""" 
+        """create and binds the listening socket and starts listening. This is automatically called on __init__"""
         if self.debug:
-            print "binding..."
+            print("binding...")
         self.listen_s=socket.socket(self.family,self.type,0)
         self.listen_s.bind((self.host,self.port))
         if self.debug:
-            print "bound to: {host}:{port}".format(host=self.host,port=self.port)
+            print("bound to: {host}:{port}".format(host=self.host,port=self.port))
         try:
             self.listen_s.listen(3)
         except:
             #some systems doesnt support backlogs larger 1
             self.listen_s.listen(1)
     def mainloop(self):
-        """enters the mainloop. The LoadBalancer will now serve incomming requests."""
+        """enters the mainloop. The Middleware will now serve incomming requests."""
         if self.debug:
-            print "entering mainloop."
+            print("entering mainloop.")
         self.running=True
         try:
             while self.running:
-                checkread=checkex=[self.listen_s]+self.i2o.keys()+self.o2i.keys()
+                combined = [self.listen_s]
+                for key in self.i2o.keys():
+                    combined.append(key)
+                for key in self.o2i.keys():
+                    combined.append(key)
+                checkread=checkex=combined
                 checkwrite=filter(None,[s for s in self.s2b.keys() if len(self.s2b[s])>0])
                 toread,towrite,exceptional=select.select(checkread,checkwrite,checkex,self.check_time)
                 if self.debug:
-                    print "data avaible on: ",toread
-                    print "buffer free on:  ",towrite
-                    print "errors on:       ",exceptional
+                    print("data avaible on: ",toread)
+                    print("buffer free on:  ",towrite)
+                    print("errors on:       ",exceptional)
                 if len(toread)==0 and len(towrite)==0 and len(exceptional)==0:
                     continue
                 for s in exceptional:
@@ -96,14 +90,14 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
                     if s is self.listen_s:
                         #error in balancer-listening-socket
                         if self.debug:
-                            print "error in listening socket!"
+                            print("error in listening socket!")
                         self.running=False
                         #raise exception, finally-clause will disconnect all sockets
                         raise RuntimeError("Error in listening socket!")
                     elif s in self.o2i:
                         #error in client-balancer connection
                         if self.debug:
-                            print "error in client connection: closing socket."
+                            print("error in client connection: closing socket.")
                         self.close_s(s)
                     else:
                         #error in balancer-server connection
@@ -120,15 +114,15 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
                         if old_peer is None:
                             #fallback-server not possible, closing socket
                             if self.debug:
-                                print "fallback not possible, closing s"
+                                print("fallback not possible, closing s")
                             self.close_s(c2s)
                         else:
                             #reconnect s to fallback server
                             if self.debug:
-                                print "error in connection to normal server, instead connecting to fallback-server."""
+                                print("error in connection to normal server, instead connecting to fallback-server.""")
                             #close old socket. we cant call self.close_s here, as it would close the correctly working side of the client to
                             if self.debug:
-                                print "unregistering old peer"
+                                print("unregistering old peer")
                             try:
                                 s2c.shutdown(socket.SHUT_RDWR)
                             except:
@@ -140,7 +134,7 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
                             if s2c in self.s2b:
                                 old_buff=self.s2b[s2c]
                                 if self.debug:
-                                    print "redirecting {n} bytes to fallback server".format(n=len(old_buff))
+                                    print("redirecting {n} bytes to fallback server".format(n=len(old_buff)))
                                 del self.s2b[s2c]
                             else:
                                 old_buff=""
@@ -169,14 +163,14 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
                                     pass
                                 else:
                                     if self.debug:
-                                        print "error during connect to fallback:",e
+                                        print("error during connect to fallback:",e)
                                     self.close_s(c2s)
                                     continue
                             if err==errno.EINPROGRESS or err==errno.WSAEWOULDBLOCK:
                                 pass
                             else:
                                 if self.debug:
-                                    print "error during connet to fallback:",errno.errorcode[err]
+                                    print("error during connet to fallback:",errno.errorcode[err])
                                 self.close_s(c2s)
                 for s in towrite:
                     #write data from buffer to socket
@@ -187,30 +181,30 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
                     else:
                         tosend=self.s2b[s][:self.sendbuffer]
                     if self.debug:
-                        print "sending {n} bytes (left: {t} bytes)".format(n=len(tosend),t=len(self.s2b[s])-len(tosend))
+                        print("sending {n} bytes (left: {t} bytes)".format(n=len(tosend),t=len(self.s2b[s])-len(tosend)))
                     try:
                         sent=s.send(tosend)
                     except socket.error as e:
                         if self.debug:
-                            print "error writing buffer:",e
+                            print("error writing buffer:",e)
                         self.close_s(s)
                         continue
                     if self.debug:
-                        print "sent {n} bytes.".format(n=sent)
+                        print("sent {n} bytes.".format(n=sent))
                     if sent>=len(self.s2b[s]):
-                        self.s2b[s]=""
+                        self.s2b[s]=b""
                     self.s2b[s]=self.s2b[s][sent:]
                 for s in toread:
                     #receive data and accept connections
                     if s is self.listen_s:
                         if self.debug:
-                            print "got request"
+                            print("got request")
                         #handle connects
                         #first select target, so taht we are able to not accept a connection if no connection is aviable
                         if len(self.targets)==0:
                             #target is fallback server
                             if self.debug:
-                                print "using fallback server"
+                                print("using fallback server")
                             target=self.fallback
                         else:
                             #get target with least connections
@@ -226,20 +220,20 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
                         if target is None:
                             #either no targets are aviable and fallback isnt defined or all target have a enourmos load
                             if self.debug:
-                                print "cannot find a target!"
+                                print("cannot find a target!")
                             continue
                         if target in self.t2n:
                             self.t2n[target]+=1
                         else:
                             self.t2n[target]=1
                         if self.debug:
-                            print "target is:",target
+                            print("target is:",target)
                         new_s,addr=self.listen_s.accept()
                         new_s.setblocking(0)
                         peer=socket.socket(self.family,self.type,0)
                         peer.setblocking(0)
-                        self.s2b[new_s]=""
-                        self.s2b[peer]=""
+                        self.s2b[new_s]=b""
+                        self.s2b[peer]=b""
                         self.o2i[new_s]=peer
                         self.i2o[peer]=new_s
                         self.o2t[new_s]=target
@@ -254,14 +248,14 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
                                 pass
                             else:
                                 if self.debug:
-                                    print "error during connect to target:",e
+                                    print("error during connect to target:",e)
                                 self.close_s(new_s)
                                 continue
                         if err==errno.EINPROGRESS or err==errno.WSAEWOULDBLOCK:
                             pass
                         else:
                             if self.debug:
-                                print "error during connet to target:",errno.errorcode[err]
+                                print("error during connet to target:",errno.errorcode[err])
                             self.close_s(new_s)
                     else:
                         if s in self.i2o:
@@ -270,14 +264,14 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
                             p=self.o2i[s]
                         else:
                             if self.debug:
-                                print "a socket has no peer registered, closing it."
+                                print("a socket has no peer registered, closing it.")
                             self.close_s(s)
                             continue
                         try:
                             peerbufferlength=len(self.s2b[p])
                         except KeyError:
                             peerbufferlength=0
-                            self.s2b[p]=""
+                            self.s2b[p]=b""
                         if peerbufferlength<self.maxbuffersize:
                             maxread=self.maxbuffersize-peerbufferlength
                             try:
@@ -288,14 +282,14 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
                                     continue
                                 else:
                                     if self.debug:
-                                        print "error while receiving:",e
+                                        print("error while receiving:",e)
                                     self.close_s(s)
                                     continue
                             if self.debug:
-                                print "reveived {n} bytes.".format(n=len(data))
+                                print("reveived {n} bytes.".format(n=len(data)))
                             if len(data)==0:
                                 if self.debug:
-                                    print "connection closed."
+                                    print("connection closed.")
                                 self.close_s(s)
                             else:
                                 self.s2b[p]+=data
@@ -304,12 +298,13 @@ To run the LoadBalancer, call LoadBalancer.mainloop().
         finally:
             #close all open connections
             if self.debug:
-                print "closing all connections..."
+                print("closing all connections...")
             try:
                 self.listen_s.close()
             except:
                 pass
-            for s in self.o2i.keys()+self.i2o.keys():
+            combined = {**self.o2i, **self.i2o}
+            for s in combined:
                 self.close_s(s)
     def close_s(self,s):
         """closes the socket and its peer."""
@@ -404,34 +399,34 @@ if __name__=="__main__":
         targets=[]
         for ta in ns.targets:
             if ta.count(":")!=1:
-                print "SyntaxError in command-line target-list: expected exactly one ':'!"
+                print("SyntaxError in command-line target-list: expected exactly one ':'!")
                 sys.exit(1)
             host,port=ta.split(":")
             if len(host)==0:
-                print "SyntaxError in command-line target-list: invalid host!"
+                print("SyntaxError in command-line target-list: invalid host!")
                 sys.exit(1)
             try:
                 port=int(port)
                 if port<=0:
                     raise ValueError
             except ValueError:
-                print "SyntaxError in command-line target-list: invalid port!"
+                print("SyntaxError in command-line target-list: invalid port!")
                 sys.exit(1)
             targets.append((host,port))
     if ns.fallback is not None:
         if ns.fallback.count(":")!=1:
-            print "SyntaxError in fallback-argument: expected exactly one ':'!"
+            print("SyntaxError in fallback-argument: expected exactly one ':'!")
             sys.exit(1)
         host,port=ns.fallback.split(":")
         if len(host)==0:
-            print "SyntaxError in fallback-argument: invalid host!"
+            print("SyntaxError in fallback-argument: invalid host!")
             sys.exit(1)
         try:
             port=int(port)
             if port<=0:
                 raise ValueError
         except ValueError:
-            print "SyntaxError in fallback-argument: invalid port!"
+            print("SyntaxError in fallback-argument: invalid port!")
             sys.exit(1)
         fallback=(host,port)
     else:
@@ -439,22 +434,20 @@ if __name__=="__main__":
     if ns.path is None:
         pass
     elif not os.path.isfile(ns.path):
-        print "Error: File not found!"
+        print("Error: File not found!")
         sys.exit(1)
     else:
         targets+=load_from_file(ns.path,False)
     if len(targets)==0:
-        print "Error: no targets found!"
+        print("Error: no targets found!")
         sys.exit(1)
-    lb=LoadBalancer(ns.host,ns.port,targets,fallback,None,ns.debug)
+    middleware=Middleware(ns.host,ns.port,targets,fallback,None,ns.debug)
     try:
-        lb.mainloop()
+        middleware.mainloop()
     except (KeyboardInterrupt,SystemExit) as e:
         pass
     finally:
         try:
-            lb.stop()
+            middleware.stop()
         except RuntimeError as e:
             pass
-
-    
