@@ -20,10 +20,7 @@ Updated for 3.9
 # also: sorry for my bad english, but 'python -m pdb bennr01' doesnt seem to work for me xD
 
 import socket, select, errno
-
-
-def benign_traffic(s):
-    pass
+from ids import IntrusionDetector
 
 
 class Middleware(object):
@@ -58,6 +55,14 @@ To run the Middleware, call Middleware.mainloop().
         self.t2n = {}  # map targets to number of connections
         self.running = False
         self.bind_and_listen()
+        self.ids = IntrusionDetector()
+
+    def malicious_traffic(self, data):
+        score = self.ids.packet_rmse(data)
+        print("Score:", score)
+        return score > 1.0
+
+
 
     def bind_and_listen(self):
         """create and binds the listening socket and starts listening. This is automatically called on __init__"""
@@ -286,9 +291,10 @@ To run the Middleware, call Middleware.mainloop().
                             maxread = self.maxbuffersize - peerbufferlength
                             try:
                                 data = s.recv(maxread)
-                                if benign_traffic(s):
+                                if self.malicious_traffic(data):
+                                    if self.debug:
+                                        print("closing malicious socket")
                                     self.close_s(s)
-                                # NOTE ØIVIND
                             except socket.error as e:
                                 err = e.args[0]
                                 if err == errno.EAGAIN or err == errno.EWOULDBLOCK:
